@@ -1,0 +1,235 @@
+# Install and load required packages
+packages <- c("dplyr", "MASS", "rgl", "geometry", "stats", "lmomco", "MDBED", "copula", "mrfDepth")
+for (pkg in packages) {
+  if (!(pkg %in% rownames(installed.packages()))) install.packages(pkg)
+}
+lapply(packages, require, character.only = TRUE)
+
+# Load necessary libraries for the script
+library(MASS)
+library(ddalpha)
+library(geometry)
+library(copula)
+library(dplyr)
+
+################################################################################
+# Data Cleaning and Preprocessing
+
+# Step 1: Load the dataset
+setwd("D:/HJ paper/DataDepth/simulation/paper_Rcode")
+data <- read.csv("uci-secom.csv", stringsAsFactors = FALSE)
+
+# Step 2: Drop columns with more than 50% missing values
+missing_percentage <- sapply(data, function(x) sum(is.na(x)) / nrow(data) * 100)
+columns_to_drop <- names(data)[missing_percentage > 50]
+data_cleaned <- data[, !(names(data) %in% columns_to_drop)]
+
+# Step 3: Convert the first column to datetime format if applicable
+if (class(data_cleaned[[1]]) == "character") {
+  data_cleaned[[1]] <- as.POSIXct(data_cleaned[[1]], format = "%Y/%m/%d %H:%M", tz = "UTC")
+}
+
+# Step 4: Impute missing values in numeric columns using the median
+numeric_cols <- sapply(data_cleaned, is.numeric)
+data_cleaned[, numeric_cols] <- lapply(data_cleaned[, numeric_cols], function(x) {
+  ifelse(is.na(x), median(x, na.rm = TRUE), x)
+})
+
+# Step 5: Remove columns with constant values
+constant_columns <- sapply(data_cleaned, function(x) length(unique(x)) == 1)
+data_cleaned <- data_cleaned[, !constant_columns]
+
+# Step 6: Keep columns with at least 5 unique values, plus the last column
+columns_to_keep <- names(data_cleaned)[sapply(data_cleaned, function(x) length(unique(x)) >= 5)]
+columns_to_keep <- c(columns_to_keep, names(data_cleaned)[ncol(data_cleaned)]) 
+data_cleaned <- data_cleaned[, columns_to_keep]
+
+# Step 7: Rename columns for clarity
+column_names <- c("Time", paste0("V", seq(1, ncol(data_cleaned) - 2)), "Group")
+colnames(data_cleaned) <- column_names
+
+# Step 8: Save the cleaned dataset
+write.csv(data_cleaned, "final_cleaned_dataset.csv", row.names = FALSE)
+cat("Final cleaned dataset saved as 'final_cleaned_dataset.csv'\n")
+
+################################################################################
+# Depth Value Calculation
+
+# Load the cleaned dataset
+cleaned_data <- read.csv("final_cleaned_dataset.csv", stringsAsFactors = FALSE)
+
+# Separate rows by group (-1 and 1)
+group_negative_one <- cleaned_data %>% filter(Group == -1)
+group_positive_one <- cleaned_data %>% filter(Group == 1)
+
+# Save separated groups to CSV
+write.csv(group_negative_one, "group_negative_one.csv", row.names = FALSE)
+write.csv(group_positive_one, "group_positive_one.csv", row.names = FALSE)
+
+# Remove non-numeric columns for depth calculation
+group_data_numeric <- group_negative_one[, !(names(group_negative_one) %in% c("Time", "Group"))]
+group_data_numeric_1 <- group_positive_one[, !(names(group_positive_one) %in% c("Time", "Group"))]
+
+# Calculate depth.spatial
+spatial_depth <- 1/depth.spatial(group_data_numeric, group_data_numeric)-1
+spatial_depth_1 <- 1/depth.spatial(group_data_numeric_1, group_data_numeric)-1
+
+# Save depth values
+write.csv(data.frame(spatial_depth), "calculated_depth_values.csv", row.names = FALSE)
+write.csv(data.frame(spatial_depth_1), "calculated_depth_values_1.csv", row.names = FALSE)
+
+################################################################################
+# Combine Depth Values for EPC Plot
+
+# Load depth values and combine
+depth_values <- as.numeric(read.csv("calculated_depth_values.csv")[[1]])
+depth_values_1 <- as.numeric(read.csv("calculated_depth_values_1.csv")[[1]])
+combined_data_values <- c(depth_values, depth_values_1)
+write.csv(combined_data_values, "combined_depth_values.csv", row.names = FALSE)
+
+################################################################################
+# EPC Control Limit Calculation
+
+alpha <- pnorm(-3) * 2  # Set coverage probability
+pn <- Pn <- 0.95             # Set confidence level
+
+# Function to determine cutoff depths
+m = function(pn){
+  if (0<pn && pn<=0.8){370}
+  else if (0.8<pn && pn<=0.95){740}
+  else if (0.95<pn && pn<=0.99){1111}
+}
+sigma = function(pn){
+  if (0<pn && pn<=0.8){2}
+  else if (0.8<pn && pn<=0.9){1}
+  else if (0.9<pn && pn<=0.99){0.5}
+}
+
+pp0 = function(n){
+  if(0<pn && pn<=0.7){1}
+  else {pnorm(n/m(pn)-1, mean =0, sd =sigma(pn))}
+}
+
+limit = function(u){
+  if (0<u && u<=1/(n1)) {
+    Rx[1]*(n1*u-floor(n1*u))
+  } else if (1/(n1)<u && u<1-1/(n1*pp0(n))) {
+    (1-(n1*u-floor(n1*u)))*Rx[floor(n1*u)]+(n1*u-floor(n1*u))*Rx[floor(n1*u)+1]
+  } else {
+    Rx[n]-(Rx[n]-Rx[n-1])*log(pp0(n)*n1*(1-u))+(Rx[n]-Rx[n-1])*(log(pp0(n)*n1*(1-u)))^2
+  }
+}
+
+################################################################################
+# Calculate Fractional Order Cutoffs
+
+n <- length(depth_values) # Total number of data points
+n1 <- n + 1               # Adjustment for indices
+Rx <- sort(depth_values)  # Sort depth values
+
+# Define a function to calculate fractional order for a given alpha
+
+calculate_fractional_order <- function(alpha, n, Pn) {
+  r_pn = function(Pn){
+    if (0<Pn && Pn<=0.8){1}
+    else if (0.8<Pn && pn<=0.85){1.25}
+    else if (0.85<Pn && pn<=0.90){2}
+    else if (0.90<Pn && pn<=0.95){4}
+    else if (0.95<Pn && pn<=0.99){7}
+  }
+  
+  fun1 <- function(r) {pbeta(1-alpha,r,n-r+1)-(1-Pn)/(1+r_pn(Pn)*Pn)}
+  uniroot(fun1, c(0, n + 1))$root / n1
+}
+
+# Calculate r_n values for various alpha levels
+r_n <- calculate_fractional_order(alpha, n, Pn)
+r_n_1 <- calculate_fractional_order(pnorm(-2) * 2, n, Pn)
+r_n_2 <- calculate_fractional_order(pnorm(-1) * 2, n, Pn)
+r_n_0 <- calculate_fractional_order(0.5, n, Pn)
+
+# Calculate cutoff depths (Z_rn) using the limit function
+Z_rn <- limit(r_n)
+Z_rn_1 <- limit(r_n_1)
+Z_rn_2 <- limit(r_n_2)
+Z_rn_0 <- limit(r_n_0)
+
+cat("Cutoff Depths (Z_rn):", Z_rn, Z_rn_1, Z_rn_2, Z_rn_0, "\n")
+
+
+################################################################################
+# Identify Control and Out-of-Control Points
+
+# Points within and outside the control limits
+within_control <- data[combined_data_values <= Z_rn, ]
+out_control <- data[combined_data_values > Z_rn, ]
+
+# Find the deepest point (maximum depth value)
+deepest_index <- which(depth_values == min(depth_values))
+deepest_point <- data[deepest_index, ]
+
+# Identify out-of-control points
+out_control_index <- which(combined_data_values > Z_rn)
+out_control_values <- combined_data_values[out_control_index]
+
+################################################################################
+# Plot EPC Control Chart
+UD <- quantile(combined_data_values,0.99)*5/4
+LD <- min(combined_data_values)-0.01
+
+plot(combined_data_values, 
+     xlab = "Sample Sequence", 
+     ylab = "depth.spatial", 
+     main = paste("EPC-based Control Limits with Pn=0.95 for dataset uci-secom.csv"),
+     pch = 20, 
+     lty = 1, 
+     ylim=c(-0.5,15))
+
+# Add data lines
+lines(combined_data_values, col = "blue")
+lines(depth_values, col = "black")
+
+# Add control limit lines
+abline(h = Z_rn, col = "red", lty = 1)   # Primary control limit
+text(x = mean(par("usr")[1:4]), y = Z_rn + 0.2,  # x 軸置於中間，y 軸略高於線
+     labels = sprintf("%.5f", Z_rn), col = "red", cex = 1)
+# abline(h = Z_rn_1, col = "orange", lty = 2)
+# text(x = mean(par("usr")[1:4]), y = Z_rn_1 + 0.2,  # x 軸置於中間，y 軸略高於線
+#      labels = sprintf("%.5f", Z_rn_1), col = "orange", cex = 0.8)
+# abline(h = Z_rn_2, col = "orange", lty = 2)
+# text(x = mean(par("usr")[1:4]), y = Z_rn_2 + 0.2,  # x 軸置於中間，y 軸略高於線
+#      labels = sprintf("%.5f", Z_rn_2), col = "orange", cex = 0.8)
+abline(h = Z_rn_0, col = "black", lty = 2)
+abline(h = 0, col = "black", lty = 1, lwd = 1)
+
+# Highlight out-of-control points
+points(out_control_index, out_control_values, col = "red", pch = 16)
+
+# Annotate out-of-control points
+if (length(out_control_values) > 0) {
+  text(out_control_index, out_control_values, 
+       labels = paste0("(", out_control_index, ", ", round(out_control_values, 3), ")"), 
+       pos = 1, col = "red", cex = 0.8)
+} else {
+  cat("No points are out of control.\n")
+}
+
+# Add legend to the plot
+legend("topleft", 
+       legend = c("Phase I in-control dataset (Group +1)", "Out of Control", "Control Limit","Median Line", "Phase II (Group -1)"), 
+       col = c("black", "red", "red", "black", "blue"), 
+       pch = c(16, 16, NA,NA, NA), 
+       lty = c(NA, NA, 1,2, 1), 
+       cex = 1)
+
+################################################################################
+# Summary Statistics
+
+# Count the number of out-of-control points
+OOC <- length(out_control_values)
+OOC_RATE <- OOC / n
+
+# Print summary statistics
+cat("Number of Out-of-Control Points:", OOC, "\n")
+cat("Out-of-Control Rate:", OOC_RATE, "\n")
+

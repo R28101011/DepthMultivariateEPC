@@ -12,11 +12,11 @@ library(geometry)
 library(copula)
 library(dplyr)
 
+start_time <- Sys.time()  # Record start time
 ################################################################################
-# Data Cleaning and Preprocessing
+# Data Cleaning 
 
 # Step 1: Load the dataset
-setwd("D:/HJ paper/DataDepth/simulation/paper_Rcode")
 data <- read.csv("uci-secom.csv", stringsAsFactors = FALSE)
 
 # Step 2: Drop columns with more than 50% missing values
@@ -53,7 +53,7 @@ write.csv(data_cleaned, "final_cleaned_dataset.csv", row.names = FALSE)
 cat("Final cleaned dataset saved as 'final_cleaned_dataset.csv'\n")
 
 ################################################################################
-# Depth Value Calculation
+# Depth and Outlying Value Calculation
 
 # Load the cleaned dataset
 cleaned_data <- read.csv("final_cleaned_dataset.csv", stringsAsFactors = FALSE)
@@ -70,22 +70,27 @@ write.csv(group_positive_one, "group_positive_one.csv", row.names = FALSE)
 group_data_numeric <- group_negative_one[, !(names(group_negative_one) %in% c("Time", "Group"))]
 group_data_numeric_1 <- group_positive_one[, !(names(group_positive_one) %in% c("Time", "Group"))]
 
-# Calculate depth.spatial
-spatial_depth <- 1/depth.spatial(group_data_numeric, group_data_numeric)-1
-spatial_depth_1 <- 1/depth.spatial(group_data_numeric_1, group_data_numeric)-1
+# Calculate depth.spatial to corresponding outlyingness
+spatial_depth <- depth.spatial(group_data_numeric, group_data_numeric)
+spatial_depth_1 <- depth.spatial(group_data_numeric_1, group_data_numeric)
 
-# Save depth values
-write.csv(data.frame(spatial_depth), "calculated_depth_values.csv", row.names = FALSE)
-write.csv(data.frame(spatial_depth_1), "calculated_depth_values_1.csv", row.names = FALSE)
+threshold <- 1e-4
+outlyingness_depth_negative <- ifelse(spatial_depth > threshold, 1 / spatial_depth - 1, 1 / threshold-1)
+outlyingness_depth_positive <- ifelse(spatial_depth_1 > threshold, 1 / spatial_depth_1 - 1, 1 / threshold-1)
+
+
+# Save outlyingness values
+write.csv(data.frame(outlyingness_depth_negative), "calculated_outlyingness_values_negative.csv", row.names = FALSE)
+write.csv(data.frame(outlyingness_depth_positive), "calculated_outlyingness_values_positive.csv", row.names = FALSE)
 
 ################################################################################
-# Combine Depth Values for EPC Plot
+# Combine Outlyingness Values for EPC Plot
 
 # Load depth values and combine
-depth_values <- as.numeric(read.csv("calculated_depth_values.csv")[[1]])
-depth_values_1 <- as.numeric(read.csv("calculated_depth_values_1.csv")[[1]])
-combined_data_values <- c(depth_values, depth_values_1)
-write.csv(combined_data_values, "combined_depth_values.csv", row.names = FALSE)
+outlyingness_values_negative <- as.numeric(read.csv("calculated_outlyingness_values_negative.csv")[[1]])
+outlyingness_values_positive <- as.numeric(read.csv("calculated_outlyingness_values_positive.csv")[[1]])
+combined_data_values <- c(outlyingness_values_negative, outlyingness_values_positive)
+write.csv(combined_data_values, "combined_outlyingness_values.csv", row.names = FALSE)
 
 ################################################################################
 # EPC Control Limit Calculation
@@ -123,9 +128,9 @@ limit = function(u){
 ################################################################################
 # Calculate Fractional Order Cutoffs
 
-n <- length(depth_values) # Total number of data points
+n <- length(outlyingness_values_negative) # Total number of data points
 n1 <- n + 1               # Adjustment for indices
-Rx <- sort(depth_values)  # Sort depth values
+Rx <- sort(outlyingness_values_negative)  # Sort depth values
 
 # Define a function to calculate fractional order for a given alpha
 
@@ -142,19 +147,15 @@ calculate_fractional_order <- function(alpha, n, Pn) {
   uniroot(fun1, c(0, n + 1))$root / n1
 }
 
-# Calculate r_n values for various alpha levels
+# Calculate r_n values for alpha level
 r_n <- calculate_fractional_order(alpha, n, Pn)
-r_n_1 <- calculate_fractional_order(pnorm(-2) * 2, n, Pn)
-r_n_2 <- calculate_fractional_order(pnorm(-1) * 2, n, Pn)
-r_n_0 <- calculate_fractional_order(0.5, n, Pn)
+r_n_0 <- 0.5
 
 # Calculate cutoff depths (Z_rn) using the limit function
 Z_rn <- limit(r_n)
-Z_rn_1 <- limit(r_n_1)
-Z_rn_2 <- limit(r_n_2)
 Z_rn_0 <- limit(r_n_0)
 
-cat("Cutoff Depths (Z_rn):", Z_rn, Z_rn_1, Z_rn_2, Z_rn_0, "\n")
+cat("Cutoff Depths (Z_rn):", Z_rn, Z_rn_0, "\n")
 
 
 ################################################################################
@@ -165,7 +166,7 @@ within_control <- data[combined_data_values <= Z_rn, ]
 out_control <- data[combined_data_values > Z_rn, ]
 
 # Find the deepest point (maximum depth value)
-deepest_index <- which(depth_values == min(depth_values))
+deepest_index <- which(outlyingness_values_negative == min(outlyingness_values_negative))
 deepest_point <- data[deepest_index, ]
 
 # Identify out-of-control points
@@ -174,31 +175,22 @@ out_control_values <- combined_data_values[out_control_index]
 
 ################################################################################
 # Plot EPC Control Chart
-UD <- quantile(combined_data_values,0.99)*5/4
-LD <- min(combined_data_values)-0.01
-
 plot(combined_data_values, 
      xlab = "Sample Sequence", 
-     ylab = "depth.spatial", 
-     main = paste("EPC-based Control Limits with Pn=0.95 for dataset uci-secom.csv"),
+     ylab = "Outlyingness", 
+     main = paste("EPC-based UCL with Pn=",pn,": uci-secom.csv"),
      pch = 20, 
      lty = 1, 
-     ylim=c(-0.5,15))
+     ylim=c(-0.1,18))
 
 # Add data lines
 lines(combined_data_values, col = "blue")
-lines(depth_values, col = "black")
+lines(outlyingness_values_negative, col = "black")
 
 # Add control limit lines
-abline(h = Z_rn, col = "red", lty = 1)   # Primary control limit
-text(x = mean(par("usr")[1:4]), y = Z_rn + 0.2,  # x 軸置於中間，y 軸略高於線
-     labels = sprintf("%.5f", Z_rn), col = "red", cex = 1)
-# abline(h = Z_rn_1, col = "orange", lty = 2)
-# text(x = mean(par("usr")[1:4]), y = Z_rn_1 + 0.2,  # x 軸置於中間，y 軸略高於線
-#      labels = sprintf("%.5f", Z_rn_1), col = "orange", cex = 0.8)
-# abline(h = Z_rn_2, col = "orange", lty = 2)
-# text(x = mean(par("usr")[1:4]), y = Z_rn_2 + 0.2,  # x 軸置於中間，y 軸略高於線
-#      labels = sprintf("%.5f", Z_rn_2), col = "orange", cex = 0.8)
+abline(h = Z_rn, col = "red", lty = 2)   # Primary control limit
+text(x = mean(par("usr")[1:4]), y = Z_rn + 1,  # x 軸置於中間，y 軸略高於線
+     labels = sprintf("%.5f", Z_rn), col = "black", cex = 1)
 abline(h = Z_rn_0, col = "black", lty = 2)
 abline(h = 0, col = "black", lty = 1, lwd = 1)
 
@@ -216,10 +208,11 @@ if (length(out_control_values) > 0) {
 
 # Add legend to the plot
 legend("topleft", 
-       legend = c("Phase I in-control dataset (Group +1)", "Out of Control", "Control Limit","Median Line", "Phase II (Group -1)"), 
-       col = c("black", "red", "red", "black", "blue"), 
-       pch = c(16, 16, NA,NA, NA), 
-       lty = c(NA, NA, 1,2, 1), 
+       legend = c("Phase I in-control dataset (Group -1)", "Out of Control", expression("UCL" ~ "(" ~ alpha[0] == 0.0027 ~ ")")
+,"Median Line" ,"Phase II (Group +1)"), 
+       col = c("black", "red", "red","black", "blue"), 
+       pch = c(16, 16, NA, NA,NA), 
+       lty = c(NA, NA, 2,2, 1), 
        cex = 1)
 
 ################################################################################
@@ -233,3 +226,7 @@ OOC_RATE <- OOC / n
 cat("Number of Out-of-Control Points:", OOC, "\n")
 cat("Out-of-Control Rate:", OOC_RATE, "\n")
 
+end_time <- Sys.time()  # Record end time
+run_time <- end_time - start_time  # Compute runtime
+
+print(run_time)  # Display runtime

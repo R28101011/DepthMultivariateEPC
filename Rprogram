@@ -14,7 +14,7 @@ library(dplyr)
 
 start_time <- Sys.time()  # Record start time
 ################################################################################
-# Data Cleaning 
+# Data Cleaning and Preprocessing
 
 # Step 1: Load the dataset
 data <- read.csv("uci-secom.csv", stringsAsFactors = FALSE)
@@ -173,15 +173,21 @@ deepest_point <- data[deepest_index, ]
 out_control_index <- which(combined_data_values > Z_rn)
 out_control_values <- combined_data_values[out_control_index]
 
+# Identify exceed 50% points
+fiftieth_index <- which(outlyingness_values_positive > Z_rn_0)
+fiftieth_values <- outlyingness_values_positive[fiftieth_index]
+
 ################################################################################
 # Plot EPC Control Chart
 plot(combined_data_values, 
      xlab = "Sample Sequence", 
      ylab = "Outlyingness", 
-     main = paste("EPC-based UCL with Pn=",pn,": uci-secom.csv"),
+     main = paste("EPC-based control chart with Pn=",pn,": uci-secom.csv"),
      pch = 20, 
      lty = 1, 
-     ylim=c(-0.1,18))
+     ylim=c(-0.1,18),
+     cex.lab=1.5,cex.main=1.5,
+     cex.main = 1.5)
 
 # Add data lines
 lines(combined_data_values, col = "blue")
@@ -189,9 +195,9 @@ lines(outlyingness_values_negative, col = "black")
 
 # Add control limit lines
 abline(h = Z_rn, col = "red", lty = 2)   # Primary control limit
-text(x = mean(par("usr")[1:4]), y = Z_rn + 1,  # x 軸置於中間，y 軸略高於線
+text(x = mean(par("usr")[1:4]), y = Z_rn + 0.5,  # x 軸置於中間，y 軸略高於線
      labels = sprintf("%.5f", Z_rn), col = "black", cex = 1)
-abline(h = Z_rn_0, col = "black", lty = 2)
+abline(h = Z_rn_0, col = "black", lty = 3, lwd=4)
 abline(h = 0, col = "black", lty = 1, lwd = 1)
 
 # Highlight out-of-control points
@@ -212,12 +218,13 @@ legend("topleft",
 ,"Median Line" ,"Phase II (Group +1)"), 
        col = c("black", "red", "red","black", "blue"), 
        pch = c(16, 16, NA, NA,NA), 
-       lty = c(NA, NA, 2,2, 1), 
-       cex = 1)
+       lty = c(NA, NA, 2,3, 1), 
+       lwd= c(NA,NA,1,4,1),
+       cex = 1.2)
 
 ################################################################################
 # Summary Statistics
-
+fiftieth_values
 # Count the number of out-of-control points
 OOC <- length(out_control_values)
 OOC_RATE <- OOC / n
@@ -226,7 +233,18 @@ OOC_RATE <- OOC / n
 cat("Number of Out-of-Control Points:", OOC, "\n")
 cat("Out-of-Control Rate:", OOC_RATE, "\n")
 
+# Count the number of out-of-control points
+n2=length(outlyingness_values_positive)
+fiftieth <- length(fiftieth_values)
+fiftieth_RATE <- fiftieth / n2
+
+# Print summary statistics
+cat("Number of 50% Points:", fiftieth, "\n")
+cat("50% Rate:", fiftieth_RATE, "\n")
+
+
 end_time <- Sys.time()  # Record end time
 run_time <- end_time - start_time  # Compute runtime
 
 print(run_time)  # Display runtime
+

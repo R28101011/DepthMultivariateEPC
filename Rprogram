@@ -214,7 +214,7 @@ if (length(out_control_values) > 0) {
 
 # Add legend to the plot
 legend("topleft", 
-       legend = c("Phase I in-control dataset (Group -1)", "Out of Control", expression("UCL" ~ "(" ~ alpha[0] == 0.0027 ~ ")")
+       legend = c("Phase I in-control dataset (Group -1)", "Out of Control", expression(widehat(UCL) ~ "(" * alpha[0] == 0.0027 * ")")
 ,"Median Line" ,"Phase II (Group +1)"), 
        col = c("black", "red", "red","black", "blue"), 
        pch = c(16, 16, NA, NA,NA), 

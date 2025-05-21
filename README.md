@@ -8,12 +8,11 @@ for (pkg in packages) {
   if (!(pkg %in% rownames(installed.packages()))) install.packages(pkg)
 }
 lapply(packages, require, character.only = TRUE)
-
 library(MASS)
 library(ddalpha)
 library(geometry)
 library(copula)
 library(dplyr)
-```{r}
+```{r}  
 
 # Example

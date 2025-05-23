@@ -35,8 +35,8 @@ Ospa <- ifelse(SpatialDepth > threshold, 1 / SpatialDepth - 1, 1 / threshold-1 )
 ## Step 4: Calculate the upper control limit and the middle line
 In code.R, the OspaEPC function is used to calculate the upper control limit and the middle line. The arguments `Ospa` and `pn` represent the outlyingness and the nominal coverage probability, respectively. For example, we would like to calculate the upper control limit and middle line based on a given outlyingness `Ospa`, with a nominal coverage probability of 0.95.  
 ```{R}
-UCL <- OspaEPC(Ospa = Ospa, pn=0.95)$UCL
-ML <- OspaEPC(Ospa = Ospa)$ML
+UCL <- OspaEPC(Ospa = Ospa, pn = 0.95)$UCL
+ML <- OspaEPC(Ospa = Ospa, pn = 0.95)$ML
 ```
 
 ## Step 5: Construct the control chart  
